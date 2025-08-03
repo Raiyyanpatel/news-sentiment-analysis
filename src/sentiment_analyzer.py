@@ -19,31 +19,37 @@ class SentimentAnalyzer:
     def _load_available_models(self):
         """Load available sentiment analysis models"""
         try:
-            # Try to load transformer models if available
-            try:
-                from transformers import pipeline
-                logger.info("Loading RoBERTa sentiment model...")
-                self.models['roberta'] = pipeline(
-                    "sentiment-analysis",
-                    model="cardiffnlp/twitter-roberta-base-sentiment-latest",
-                    return_all_scores=True
-                )
-                logger.info("RoBERTa model loaded successfully")
-            except Exception as e:
-                logger.warning(f"RoBERTa model not available: {e}")
+            # Skip heavy transformer models for now - use only lightweight models
+            logger.info("Using lightweight sentiment models (VADER + TextBlob)")
+            self.models['vader'] = True
+            self.models['textblob'] = True
             
-            # Try to load FinBERT if available
-            try:
-                from transformers import pipeline
-                logger.info("Loading FinBERT model...")
-                self.models['finbert'] = pipeline(
-                    "sentiment-analysis",
-                    model="ProsusAI/finbert",
-                    return_all_scores=True
-                )
-                logger.info("FinBERT model loaded successfully")
-            except Exception as e:
-                logger.warning(f"FinBERT model not available: {e}")
+            # Commented out transformer models to speed up startup
+            # try:
+            #     from transformers import pipeline
+            #     logger.info("Loading RoBERTa sentiment model...")
+            #     self.models['roberta'] = pipeline(
+            #         "sentiment-analysis",
+            #         model="cardiffnlp/twitter-roberta-base-sentiment-latest",
+            #         return_all_scores=True
+            #     )
+            # logger.info("RoBERTa model loaded successfully")
+            # except Exception as e:
+            #     logger.warning(f"RoBERTa model not available: {e}")
+            
+            # Commented out for faster startup
+            # # Try to load FinBERT if available
+            # try:
+            #     from transformers import pipeline
+            #     logger.info("Loading FinBERT model...")
+            #     self.models['finbert'] = pipeline(
+            #         "sentiment-analysis",
+            #         model="ProsusAI/finbert",
+            #         return_all_scores=True
+            #     )
+            #     logger.info("FinBERT model loaded successfully")
+            # except Exception as e:
+            #     logger.warning(f"FinBERT model not available: {e}")
                 
         except Exception as e:
             logger.warning(f"Transformer models not available: {e}")
