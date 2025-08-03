@@ -1,5 +1,3 @@
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 from textblob import TextBlob
 import numpy as np
@@ -11,54 +9,51 @@ import re
 logger = logging.getLogger(__name__)
 
 class SentimentAnalyzer:
-    """High-accuracy sentiment analyzer using ensemble of multiple models"""
+    """High-accuracy sentiment analyzer using ensemble of available models"""
     
     def __init__(self):
         self.models = {}
         self.vader_analyzer = SentimentIntensityAnalyzer()
-        self._load_models()
+        self._load_available_models()
     
-    def _load_models(self):
-        """Load multiple sentiment analysis models"""
+    def _load_available_models(self):
+        """Load available sentiment analysis models"""
         try:
-            # Load RoBERTa model for high accuracy
-            logger.info("Loading RoBERTa sentiment model...")
-            self.models['roberta'] = pipeline(
-                "sentiment-analysis",
-                model="cardiffnlp/twitter-roberta-base-sentiment-latest",
-                return_all_scores=True
-            )
-            
-            # Load FinBERT for financial news (if available)
+            # Try to load transformer models if available
             try:
+                from transformers import pipeline
+                logger.info("Loading RoBERTa sentiment model...")
+                self.models['roberta'] = pipeline(
+                    "sentiment-analysis",
+                    model="cardiffnlp/twitter-roberta-base-sentiment-latest",
+                    return_all_scores=True
+                )
+                logger.info("RoBERTa model loaded successfully")
+            except Exception as e:
+                logger.warning(f"RoBERTa model not available: {e}")
+            
+            # Try to load FinBERT if available
+            try:
+                from transformers import pipeline
                 logger.info("Loading FinBERT model...")
                 self.models['finbert'] = pipeline(
                     "sentiment-analysis",
                     model="ProsusAI/finbert",
                     return_all_scores=True
                 )
+                logger.info("FinBERT model loaded successfully")
             except Exception as e:
-                logger.warning(f"FinBERT not available: {e}")
-            
-            # Load DistilBERT as backup
-            try:
-                logger.info("Loading DistilBERT model...")
-                self.models['distilbert'] = pipeline(
-                    "sentiment-analysis",
-                    model="distilbert-base-uncased-finetuned-sst-2-english",
-                    return_all_scores=True
-                )
-            except Exception as e:
-                logger.warning(f"DistilBERT not available: {e}")
+                logger.warning(f"FinBERT model not available: {e}")
                 
         except Exception as e:
-            logger.error(f"Error loading models: {e}")
-            # Fallback to basic model
-            self.models['basic'] = pipeline("sentiment-analysis")
+            logger.warning(f"Transformer models not available: {e}")
+        
+        # Always have VADER and TextBlob as fallbacks
+        logger.info("VADER and TextBlob models loaded successfully")
     
     def analyze(self, text: str) -> Dict:
         """
-        Analyze sentiment using ensemble of multiple models
+        Analyze sentiment using available models
         
         Args:
             text: Text to analyze
@@ -77,7 +72,7 @@ class SentimentAnalyzer:
         # Preprocess text
         cleaned_text = self._preprocess_text(text)
         
-        # Get predictions from all models
+        # Get predictions from all available models
         predictions = self._get_ensemble_predictions(cleaned_text)
         
         # Combine predictions using weighted ensemble
@@ -94,7 +89,8 @@ class SentimentAnalyzer:
             'details': {
                 'model_predictions': predictions,
                 'text_length': len(text),
-                'processed_length': len(cleaned_text)
+                'processed_length': len(cleaned_text),
+                'models_used': list(predictions.keys())
             }
         }
     
@@ -131,7 +127,7 @@ class SentimentAnalyzer:
         """Get predictions from all available models"""
         predictions = {}
         
-        # RoBERTa prediction
+        # RoBERTa prediction (if available)
         if 'roberta' in self.models:
             try:
                 roberta_result = self.models['roberta'](text)[0]
@@ -139,7 +135,7 @@ class SentimentAnalyzer:
             except Exception as e:
                 logger.error(f"RoBERTa prediction error: {e}")
         
-        # FinBERT prediction (for financial news)
+        # FinBERT prediction (if available)
         if 'finbert' in self.models:
             try:
                 finbert_result = self.models['finbert'](text)[0]
@@ -147,22 +143,14 @@ class SentimentAnalyzer:
             except Exception as e:
                 logger.error(f"FinBERT prediction error: {e}")
         
-        # DistilBERT prediction
-        if 'distilbert' in self.models:
-            try:
-                distilbert_result = self.models['distilbert'](text)[0]
-                predictions['distilbert'] = self._normalize_distilbert_output(distilbert_result)
-            except Exception as e:
-                logger.error(f"DistilBERT prediction error: {e}")
-        
-        # VADER prediction
+        # VADER prediction (always available)
         try:
             vader_scores = self.vader_analyzer.polarity_scores(text)
             predictions['vader'] = self._normalize_vader_output(vader_scores)
         except Exception as e:
-            logger.error(f"VADER prediction error: {e}")
+                logger.error(f"VADER prediction error: {e}")
         
-        # TextBlob prediction
+        # TextBlob prediction (always available)
         try:
             blob = TextBlob(text)
             textblob_polarity = blob.sentiment.polarity
@@ -201,29 +189,6 @@ class SentimentAnalyzer:
     def _normalize_finbert_output(self, result: List[Dict]) -> Dict:
         """Normalize FinBERT output to standard format"""
         scores = {item['label'].lower(): item['score'] for item in result}
-        sentiment = max(scores, key=scores.get)
-        confidence = scores[sentiment]
-        
-        return {
-            'sentiment': sentiment,
-            'confidence': confidence,
-            'scores': scores
-        }
-    
-    def _normalize_distilbert_output(self, result: List[Dict]) -> Dict:
-        """Normalize DistilBERT output to standard format"""
-        scores = {}
-        for item in result:
-            label = item['label'].lower()
-            if 'positive' in label:
-                scores['positive'] = item['score']
-            elif 'negative' in label:
-                scores['negative'] = item['score']
-        
-        # Add neutral as average
-        scores['neutral'] = 1.0 - scores.get('positive', 0) - scores.get('negative', 0)
-        scores['neutral'] = max(0, scores['neutral'])
-        
         sentiment = max(scores, key=scores.get)
         confidence = scores[sentiment]
         
@@ -298,11 +263,10 @@ class SentimentAnalyzer:
         
         # Model weights (higher weight = more trusted)
         weights = {
-            'roberta': 0.35,      # Highest weight for RoBERTa
-            'finbert': 0.25,      # High weight for FinBERT
-            'distilbert': 0.20,   # Good weight for DistilBERT
-            'vader': 0.15,        # Lower weight for VADER
-            'textblob': 0.05      # Lowest weight for TextBlob
+            'roberta': 0.40,      # Highest weight for RoBERTa
+            'finbert': 0.30,      # High weight for FinBERT
+            'vader': 0.20,        # Good weight for VADER
+            'textblob': 0.10      # Lower weight for TextBlob
         }
         
         # Initialize combined scores
@@ -343,8 +307,10 @@ class SentimentAnalyzer:
     
     def get_model_info(self) -> Dict:
         """Get information about loaded models"""
+        available_models = list(self.models.keys()) + ['vader', 'textblob']
         return {
-            'available_models': list(self.models.keys()),
+            'available_models': available_models,
             'confidence_threshold': Config.CONFIDENCE_THRESHOLD,
-            'ensemble_enabled': len(self.models) > 1
+            'ensemble_enabled': len(available_models) > 1,
+            'transformer_models_loaded': len(self.models) > 0
         }
